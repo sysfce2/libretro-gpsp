@@ -621,7 +621,16 @@ void retro_init(void)
 #if defined(HAVE_DYNAREC)
   #if defined(MMAP_JIT_CACHE)
    rom_translation_cache = map_jit_block(ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
-   ram_translation_cache = &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE];
+   if (rom_translation_cache)
+      ram_translation_cache = &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE];
+   else if (log_cb)
+      /* No usable block within branch range of the text segment (or
+       * RWX denied, e.g. hardened runtimes without a JIT entitlement).
+       * check_variables pins dynarec_enable to 0 in this case and the
+       * core runs on the interpreter. */
+      log_cb(RETRO_LOG_ERROR,
+             "Failed to map the JIT translation cache; "
+             "falling back to the interpreter\n");
   #elif defined(_3DS)
    if (__ctr_svchax && !translation_caches_inited)
    {
@@ -722,7 +731,8 @@ void retro_deinit(void)
    memory_term();
 
 #if defined(MMAP_JIT_CACHE) && defined(HAVE_DYNAREC)
-   unmap_jit_block(rom_translation_cache, ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
+   if (rom_translation_cache)
+      unmap_jit_block(rom_translation_cache, ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
 #endif
 #if defined(_3DS) && defined(HAVE_DYNAREC)
 
@@ -940,6 +950,13 @@ static void check_variables(bool started_from_load)
    }
    else
       dynarec_enable = 1;
+
+#if defined(MMAP_JIT_CACHE)
+   /* Without a translation cache the dynarec cannot run; pin the
+    * interpreter regardless of the core option. */
+   if (!rom_translation_cache)
+      dynarec_enable = 0;
+#endif
 #else
    dynarec_enable = 0;
 #endif

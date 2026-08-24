@@ -112,8 +112,15 @@ void init_main(void)
   video_count = 960;
 
 #ifdef HAVE_DYNAREC
-  init_dynarec_caches();
-  init_emitter(gamepak_must_swap());
+#if defined(MMAP_JIT_CACHE)
+  /* No cache was mapped: the dynarec is pinned off and its state must
+   * not be touched (init_emitter emits the BIOS SWI entry point). */
+  if (rom_translation_cache)
+#endif
+  {
+    init_dynarec_caches();
+    init_emitter(gamepak_must_swap());
+  }
 #endif
 }
 

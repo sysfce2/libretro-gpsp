@@ -104,6 +104,13 @@ bool validate_addr_section_mips(void *ptr, unsigned size, unsigned max_offset_mb
 	void *map_jit_block(unsigned size) {
 		unsigned i;
 		uintptr_t base = (uintptr_t)(map_jit_block) & (~(_MAP_STEP - 1ULL));
+		int flags = MAP_ANON | MAP_PRIVATE;
+		#ifdef __APPLE__
+		/* RWX mappings require MAP_JIT under the hardened runtime and
+		 * unconditionally on Apple silicon, where writes are then gated
+		 * per-thread (see jit_write_enable/jit_exec_enable). */
+		flags |= MAP_JIT;
+		#endif
 		for (i = 0; i < _MAP_ITERATIONS; i++) {
 			int offset = ((i & 1) ? 1 : -1) * (i >> 1) * _MAP_STEP;
 			uintptr_t baddr = base + (intptr_t)offset;
@@ -111,8 +118,9 @@ bool validate_addr_section_mips(void *ptr, unsigned size, unsigned max_offset_mb
 				continue;    // Do not map NULL, bad things happen :)
 
 			void *p = mmap((void*)baddr, size, PROT_READ|PROT_WRITE|PROT_EXEC,
-			                                   MAP_ANON|MAP_PRIVATE, -1, 0);
-			if (p) {
+			                                   flags, -1, 0);
+			/* mmap signals failure with MAP_FAILED, not NULL. */
+			if (p != MAP_FAILED) {
 				if (_VALIDATE_BLOCK_FN(p, size))
 					return p;
 

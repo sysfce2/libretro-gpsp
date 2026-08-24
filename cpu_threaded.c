@@ -22,6 +22,7 @@
 // - block memory needs psr swapping and user mode reg swapping
 
 #include "common.h"
+#include "memmap.h"
 #if defined(VITA)
 #include <psp2/kernel/sysmem.h>
 #include <stdio.h>
@@ -2741,14 +2742,22 @@ u8 function_cc *block_lookup_address_dual(u32 pc)
 
 u8 function_cc *block_lookup_address_arm(u32 pc)
 {
+  /* Sole gateway for all writes to the translation caches: block
+   * headers, RAM tag entries, emitted code and branch patches all
+   * happen under block_lookup_translate below. Open the per-thread
+   * write window here and return to the executable state before any
+   * translated code can run again (a no-op outside Apple silicon). */
   unsigned i;
+  jit_write_enable();
   for (i = 0; i < 4; i++) {
     u8 *ret = block_lookup_translate_arm(pc);
     if (ret) {
       translate_icache_sync();
+      jit_exec_enable();
       return ret;
     }
   }
+  jit_exec_enable();
 
   printf("bad jump %x (%x)\n", pc, reg[REG_PC]);
   fflush(stdout);
@@ -2757,14 +2766,18 @@ u8 function_cc *block_lookup_address_arm(u32 pc)
 
 u8 function_cc *block_lookup_address_thumb(u32 pc)
 {
+  /* See block_lookup_address_arm for the W^X window rationale. */
   unsigned i;
+  jit_write_enable();
   for (i = 0; i < 4; i++) {
     u8 *ret = block_lookup_translate_thumb(pc);
     if (ret) {
       translate_icache_sync();
+      jit_exec_enable();
       return ret;
     }
   }
+  jit_exec_enable();
   printf("bad jump %x (%x)\n", pc, reg[REG_PC]);
   fflush(stdout);
   return NULL;
